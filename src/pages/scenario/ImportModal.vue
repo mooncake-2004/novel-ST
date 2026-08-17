@@ -419,10 +419,18 @@ function handleSaveSource() {
 
 <style scoped>
 .nst-import-container {
+  width: 100%;
+  max-width: 920px;
+  background: var(--nst-bg-surface);
+  border: 1px solid var(--nst-border-strong);
+  border-radius: var(--nst-radius);
+  box-shadow: var(--nst-shadow-lg);
+  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: 85vh;
+  max-height: 88vh;
+  box-sizing: border-box;
 }
 
 .nst-import-header {

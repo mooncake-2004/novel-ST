@@ -28,13 +28,14 @@ const emit = defineEmits<{
   bottom: 0;
   left: 0;
   z-index: var(--nst-z-modal);
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 20px;
+  box-sizing: border-box;
 }
 
 .nst-modal-fade-enter-active,
