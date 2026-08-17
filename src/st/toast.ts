@@ -1,33 +1,30 @@
-export const toast = {
-  success(message: string, title = 'Novel-ST') {
-    if (typeof window !== 'undefined' && window.toastr?.success) {
-      window.toastr.success(message, title);
-    } else {
-      console.log(`[${title}] Success:`, message);
-    }
-  },
+type ToastType = 'info' | 'success' | 'warning' | 'error';
 
-  info(message: string, title = 'Novel-ST') {
-    if (typeof window !== 'undefined' && window.toastr?.info) {
-      window.toastr.info(message, title);
-    } else {
-      console.log(`[${title}] Info:`, message);
-    }
-  },
+interface Toastr {
+  info: (msg: string, title?: string) => void;
+  success: (msg: string, title?: string) => void;
+  warning: (msg: string, title?: string) => void;
+  error: (msg: string, title?: string) => void;
+}
 
-  warning(message: string, title = 'Novel-ST') {
-    if (typeof window !== 'undefined' && window.toastr?.warning) {
-      window.toastr.warning(message, title);
-    } else {
-      console.warn(`[${title}] Warning:`, message);
+function showToast(message: string, type: ToastType = 'info', title = 'Novel-ST'): void {
+  try {
+    const t = (window as unknown as { toastr?: Toastr }).toastr;
+    if (t && typeof t[type] === 'function') {
+      t[type](message, title);
+      return;
     }
-  },
+  } catch {
+    /* toastr not available */
+  }
+  console.log(`[${title}] ${type.toUpperCase()}:`, message);
+}
 
-  error(message: string, title = 'Novel-ST') {
-    if (typeof window !== 'undefined' && window.toastr?.error) {
-      window.toastr.error(message, title);
-    } else {
-      console.error(`[${title}] Error:`, message);
-    }
-  },
-};
+export function toast(message: string, type: ToastType = 'info', title = 'Novel-ST'): void {
+  showToast(message, type, title);
+}
+
+toast.info = (message: string, title = 'Novel-ST') => showToast(message, 'info', title);
+toast.success = (message: string, title = 'Novel-ST') => showToast(message, 'success', title);
+toast.warning = (message: string, title = 'Novel-ST') => showToast(message, 'warning', title);
+toast.error = (message: string, title = 'Novel-ST') => showToast(message, 'error', title);

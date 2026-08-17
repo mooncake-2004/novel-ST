@@ -22,6 +22,9 @@ async function handleUpdateClick() {
     await performUpdate();
   } else {
     await checkForUpdate(true);
+    if (!updateState.available && !updateState.checking) {
+      showForceUpdateConfirm.value = true;
+    }
   }
 }
 
@@ -33,6 +36,7 @@ const testResult = ref<{ ok: boolean; msg: string } | null>(null);
 const isFetchingModels = ref(false);
 const modelList = ref<string[]>([]);
 const showDeleteConfirm = ref(false);
+const showForceUpdateConfirm = ref(false);
 const channelToDelete = ref<ApiChannel | null>(null);
 const showKey = ref(false);
 
@@ -615,6 +619,16 @@ function confirmDeleteChannel() {
         </div>
       </div>
     </ModalMask>
+
+    <!-- Force Update Confirm Dialog -->
+    <ConfirmDialog
+      :open="showForceUpdateConfirm"
+      title="强制重新更新"
+      :message="`当前本地版本与远端版本一致 (v${updateState.current})。是否要从 GitHub 重新拉取最新文件并刷新？`"
+      :danger="false"
+      @confirm="() => { showForceUpdateConfirm = false; performUpdate(); }"
+      @cancel="showForceUpdateConfirm = false"
+    />
 
     <!-- Delete Confirm Dialog -->
     <ConfirmDialog
