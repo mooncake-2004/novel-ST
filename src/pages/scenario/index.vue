@@ -1,60 +1,135 @@
 <script setup lang="ts">
 import Icon from '@/components/Icon.vue';
-import { ref } from 'vue';
+import { clearCurrentNovel, loadScenarioStore, scenarioStore } from '@/scenario/store';
+import type { NovelSource, SceneNode } from '@/scenario/types';
+import { onMounted, ref } from 'vue';
+import ImportModal from './ImportModal.vue';
 
-const mockScenes = ref([
+onMounted(() => {
+  loadScenarioStore();
+});
+
+const showImportModal = ref(false);
+
+const mockScenes = ref<SceneNode[]>([
   {
     id: 'canon_001',
+    index: 1,
     title: '第一幕：退婚之辱与立誓',
     location: '乌坦城 · 萧家大厅',
     characters: ['萧炎 (玩家)', '纳兰嫣然', '葛叶', '萧战'],
     status: 'active',
     summary: '纳兰嫣然携云岚宗葛叶执事登门强势退婚，奉上聚气丹补偿。',
     canonGoals: [
-      { text: '隐忍葛叶与纳兰嫣然的言语施压', done: true },
-      { text: '断然拒绝聚气丹赔偿', done: true },
-      { text: '咬破手指手书休书，立下三年之约', done: false },
+      { id: 'g1', text: '隐忍葛叶与纳兰嫣然的言语施压', done: true, required: true },
+      { id: 'g2', text: '断然拒绝聚气丹赔偿', done: true, required: true },
+      { id: 'g3', text: '咬破手指手书休书，立下三年之约', done: false, required: true },
     ],
     oocHint: '原著中萧炎在此处掷地有声喊出“三十年河东，三十年河西，莫欺少年穷！”，震撼全场。',
+    canonExpectedOutcomes: {
+      keyEvents: ['立下三年之约', '撕毁婚约', '药老暗中苏醒'],
+      characterStateChanges: {
+        xiao_yan: '休妻并立誓三年后挑战云岚宗',
+        na_lan: '傲慢但略感屈辱',
+      },
+    },
   },
   {
     id: 'canon_002',
+    index: 2,
     title: '第二幕：药老苏醒与焚决现世',
     location: '后山悬崖',
     characters: ['萧炎 (玩家)', '药老'],
     status: 'pending',
     summary: '萧炎在后山发泄情绪时，戒指中的药老灵魂现身，坦白吸收斗气真相并收徒。',
     canonGoals: [
-      { text: '识破戒指异象并与药老初次对话', done: false },
-      { text: '正式拜师药老，了解炼药师之道', done: false },
+      { id: 'g4', text: '识破戒指异象并与药老初次对话', done: false, required: true },
+      { id: 'g5', text: '正式拜师药老，了解炼药师之道', done: false, required: true },
     ],
     oocHint: '原著中药老以炼药术和地阶功法诱惑萧炎，萧炎以机敏与尊师重道打动药老。',
+    canonExpectedOutcomes: {
+      keyEvents: ['拜师药老', '得知斗气倒退真相', '获赠焚决'],
+      characterStateChanges: {
+        yao_lao: '认可萧炎心性并认作关门弟子',
+      },
+    },
   },
 ]);
+
+function handleNovelSaved(source: NovelSource) {
+  // Loaded successfully
+}
 </script>
 
 <template>
   <div class="nst-scenario-page">
+    <!-- Top Header -->
     <div class="nst-page-header">
       <div class="nst-page-title-group">
         <h2 class="nst-page-title">小说大纲与分镜导航</h2>
-        <span class="nst-page-subtitle">当前剧本：《斗破苍穹》（示例片段）</span>
+        <span v-if="scenarioStore.source" class="nst-page-subtitle">
+          当前小说：《{{ scenarioStore.source.title }}》（共 {{ scenarioStore.source.chapters.length }} 章节 / {{ (scenarioStore.source.totalChars / 10000).toFixed(1) }} 万字）
+        </span>
+        <span v-else class="nst-page-subtitle">
+          当前尚未载入小说，请先导入小说文本
+        </span>
       </div>
       <div class="nst-header-actions">
-        <button class="nst-btn nst-btn-secondary nst-btn-sm">
-          <Icon name="refresh" :size="14" />
-          重新清洗分镜
+        <button
+          v-if="scenarioStore.source"
+          class="nst-btn nst-btn-secondary nst-btn-sm"
+          @click="clearCurrentNovel"
+        >
+          清空小说
         </button>
-        <button class="nst-btn nst-btn-primary nst-btn-sm">
+        <button
+          class="nst-btn nst-btn-primary nst-btn-sm"
+          @click="showImportModal = true"
+        >
           <Icon name="plus" :size="14" />
-          导入新小说
+          {{ scenarioStore.source ? '更换/导入小说' : '导入小说文本' }}
         </button>
       </div>
     </div>
 
+    <!-- Loaded Novel Info Card -->
+    <div v-if="scenarioStore.source" class="nst-source-summary-card">
+      <div class="nst-source-badge">📖 已就绪小说源</div>
+      <div class="nst-source-main">
+        <div class="nst-source-info">
+          <h3 class="nst-source-title">《{{ scenarioStore.source.title }}》</h3>
+          <div class="nst-source-meta">
+            <span>🎭 玩家身份：<strong>{{ scenarioStore.source.protagonist }}</strong></span>
+            <span>📑 章节总计：<strong>{{ scenarioStore.source.chapters.length }}</strong> 章</span>
+            <span>📝 正文字数：<strong>{{ scenarioStore.source.totalChars.toLocaleString() }}</strong> 字</span>
+          </div>
+        </div>
+        <div class="nst-source-next-box">
+          <div class="nst-next-hint">文本分章已就绪，下一步将进行单章/多章 AI 分镜清洗提取</div>
+          <button class="nst-btn nst-btn-primary nst-btn-sm" @click="showImportModal = true">
+            查看章节清单
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty State if no novel -->
+    <div v-else class="nst-empty-source-card">
+      <div class="nst-empty-icon">📚</div>
+      <h3 class="nst-empty-title">尚未导入小说文本</h3>
+      <p class="nst-empty-desc">
+        Novel-ST 支持一键粘贴小说长文本或直接上传本地 .txt / .md 文件。<br />
+        引擎会自动识别章节结构并切片，方便后续进行分镜提取与 IF 线演化。
+      </p>
+      <button class="nst-btn nst-btn-primary" @click="showImportModal = true">
+        <Icon name="plus" :size="16" />
+        立即导入第一本小说
+      </button>
+    </div>
+
     <!-- Active Scene Card (HUD Preview) -->
     <div class="nst-active-scene-card">
-      <div class="nst-scene-tag">当前进行中分镜</div>
+      <div class="nst-scene-tag">当前进行中分镜（示例预览）</div>
       <div class="nst-scene-header">
         <h3 class="nst-scene-title">{{ mockScenes[0].title }}</h3>
         <div class="nst-scene-loc">
@@ -112,6 +187,13 @@ const mockScenes = ref([
         </div>
       </div>
     </div>
+
+    <!-- Import Modal -->
+    <ImportModal
+      :open="showImportModal"
+      @close="showImportModal = false"
+      @saved="handleNovelSaved"
+    />
   </div>
 </template>
 
@@ -148,6 +230,95 @@ const mockScenes = ref([
 .nst-btn-sm {
   padding: 4px 12px;
   font-size: 12px;
+}
+
+/* Source Summary Card */
+.nst-source-summary-card {
+  background: var(--nst-bg-surface);
+  border: 1px solid var(--nst-border);
+  border-left: 4px solid var(--nst-primary);
+  border-radius: var(--nst-radius);
+  padding: 16px 20px;
+  box-shadow: var(--nst-shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nst-source-badge {
+  font-size: 11px;
+  color: var(--nst-primary);
+  font-weight: 600;
+}
+
+.nst-source-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nst-source-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--nst-ink);
+}
+
+.nst-source-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--nst-ink-dim);
+}
+
+.nst-source-meta strong {
+  color: var(--nst-ink);
+}
+
+.nst-source-next-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.nst-next-hint {
+  font-size: 11px;
+  color: var(--nst-ink-dim);
+}
+
+/* Empty State Card */
+.nst-empty-source-card {
+  background: var(--nst-bg-surface);
+  border: 1px dashed var(--nst-border-strong);
+  border-radius: var(--nst-radius);
+  padding: 36px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.nst-empty-icon {
+  font-size: 40px;
+}
+
+.nst-empty-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--nst-ink);
+}
+
+.nst-empty-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--nst-ink-dim);
+  max-width: 520px;
+  line-height: 1.6;
 }
 
 /* Active Scene Card */
