@@ -1,7 +1,7 @@
-import { createApp } from 'vue';
+import { createApp, watch } from 'vue';
 import App from '@/App.vue';
-import { hydrateSettings } from '@/api/settings';
-import { injectExtensionsMenu, injectTopBarButton } from '@/st/menu';
+import { hydrateSettings, novelSettings } from '@/api/settings';
+import { injectExtensionsMenu, syncTopBarButton } from '@/st/menu';
 import { initTheme } from '@/state/ui';
 import '@/styles/base.css';
 import '@/styles/theme.css';
@@ -39,23 +39,32 @@ function mountApp() {
 }
 
 function initNovelST(attempt = 0) {
-  if (typeof window !== 'undefined' && window.SillyTavern?.getContext) {
+  if (typeof window !== 'undefined' && (window as any).SillyTavern?.getContext) {
     try {
-      console.log('[Novel-ST] 初始化挂载中...');
+      console.log('[Novel-ST] 正在挂载插件...');
       hydrateSettings();
       mountApp();
       injectExtensionsMenu();
-      injectTopBarButton();
-      console.log('[Novel-ST] 初始化就绪！');
+      syncTopBarButton(novelSettings.showTopBarButton);
+
+      // Watch setting changes
+      watch(
+        () => novelSettings.showTopBarButton,
+        (val) => {
+          syncTopBarButton(val);
+        }
+      );
+
+      console.log('[Novel-ST] 插件挂载完成！');
     } catch (e) {
       console.error('[Novel-ST] 初始化失败:', e);
     }
     return;
   }
 
-  if (attempt > 30) {
-    // If running in standalone preview or ST slow start
+  if (attempt > 40) {
     mountApp();
+    syncTopBarButton(true);
     return;
   }
 
@@ -64,8 +73,9 @@ function initNovelST(attempt = 0) {
 
 // Start extension
 if (typeof window !== 'undefined') {
-  if (window.$) {
-    window.$(() => initNovelST());
+  const $ = (window as any).$;
+  if ($) {
+    $(() => initNovelST());
   } else {
     window.addEventListener('DOMContentLoaded', () => initNovelST());
   }
