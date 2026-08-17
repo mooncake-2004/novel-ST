@@ -1,0 +1,12 @@
+{
+  "display_name": "Novel-ST 剧情沙盒引擎",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "dist/index.js",
+  "author": "mooncake-2004",
+  "version": "1.0.0",
+  "homePage": "https://github.com/mooncake-2004/novel-ST",
+  "auto_update": false,
+  "minimum_client_version": "1.12.0"
+}

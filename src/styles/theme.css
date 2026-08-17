@@ -1,0 +1,100 @@
+/*
+ * Novel-ST Design Tokens & Themes
+ * Light Theme: Warm Paper, Deep Ink, Amber Gold & Jade Accents
+ * Dark Theme: Deep Slate, Obsidian, Warm Gold Highlights
+ */
+
+.nst-root {
+  /* —— Fonts —— */
+  --nst-font-sans: 'MiSans', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
+  --nst-font-mono: 'SF Mono', 'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace;
+
+  /* —— Radii —— */
+  --nst-radius-win: 16px;
+  --nst-radius: 12px;
+  --nst-radius-sm: 8px;
+  --nst-radius-pill: 999px;
+
+  /* —— Transitions —— */
+  --nst-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --nst-dur: 0.2s;
+  --nst-dur-slow: 0.35s;
+
+  /* —— Z-Index —— */
+  --nst-z-win: 2147483640;
+  --nst-z-modal: 2147483645;
+}
+
+/* Light Theme (Default) */
+.nst-root,
+.nst-root[data-theme='light'] {
+  --nst-bg-base: #f9f7f2;
+  --nst-bg-surface: #ffffff;
+  --nst-bg-card: #f5f3ec;
+  --nst-bg-card-hover: #edeae0;
+  --nst-bg-input: #ffffff;
+  --nst-bg-item: #f3f0e8;
+
+  --nst-ink: #2c2724;
+  --nst-ink-dim: #6e675f;
+  --nst-ink-faint: #a0998f;
+  --nst-ink-inverse: #ffffff;
+
+  --nst-border: #e6e0d2;
+  --nst-border-strong: #d5cebe;
+  --nst-border-focus: #b26822;
+
+  --nst-primary: #b26822;
+  --nst-primary-hover: #985516;
+  --nst-primary-active: #7e440f;
+  --nst-primary-bg: #faeedf;
+  --nst-primary-text: #ffffff;
+
+  --nst-accent: #2e7a62;
+  --nst-accent-bg: #e5f4ef;
+  
+  --nst-danger: #c24134;
+  --nst-danger-bg: #fdeeee;
+  --nst-danger-hover: #a83327;
+
+  --nst-shadow-sm: 0 1px 3px rgba(44, 39, 36, 0.05);
+  --nst-shadow: 0 4px 16px rgba(44, 39, 36, 0.08);
+  --nst-shadow-lg: 0 12px 32px rgba(44, 39, 36, 0.14);
+}
+
+/* Dark Theme */
+.nst-root[data-theme='dark'] {
+  --nst-bg-base: #17181c;
+  --nst-bg-surface: #202227;
+  --nst-bg-card: #282a30;
+  --nst-bg-card-hover: #31333b;
+  --nst-bg-input: #1a1b1f;
+  --nst-bg-item: #2c2e35;
+
+  --nst-ink: #f0ede6;
+  --nst-ink-dim: #a6a39b;
+  --nst-ink-faint: #6e6c66;
+  --nst-ink-inverse: #17181c;
+
+  --nst-border: #363840;
+  --nst-border-strong: #4a4d57;
+  --nst-border-focus: #e09145;
+
+  --nst-primary: #e09145;
+  --nst-primary-hover: #f0a359;
+  --nst-primary-active: #c57b32;
+  --nst-primary-bg: #3d2919;
+  --nst-primary-text: #1a1510;
+
+  --nst-accent: #4ec29f;
+  --nst-accent-bg: #19362c;
+
+  --nst-danger: #e25c4f;
+  --nst-danger-bg: #3a1c1a;
+  --nst-danger-hover: #f06e61;
+
+  --nst-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --nst-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --nst-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
