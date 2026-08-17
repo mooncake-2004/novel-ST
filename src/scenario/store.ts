@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue';
+import { reactive } from 'vue';
 import { getContext } from '@/st/context';
 import { dbDeleteNovel, dbGetAllNovels, dbGetNovel, dbSaveNovel } from './db';
 import type { NovelSource, ScenarioPack } from './types';
@@ -43,13 +43,18 @@ export async function loadScenarioStore(): Promise<void> {
         scenarioStore.activeNovelId = found.id;
         scenarioStore.source = found;
       } else if (list.length > 0) {
-        // 如果之前选中的已被删除，自动选择第一个
         scenarioStore.activeNovelId = list[0].id;
         scenarioStore.source = list[0];
+      } else {
+        scenarioStore.activeNovelId = null;
+        scenarioStore.source = null;
       }
     } else if (list.length > 0) {
       scenarioStore.activeNovelId = list[0].id;
       scenarioStore.source = list[0];
+    } else {
+      scenarioStore.activeNovelId = null;
+      scenarioStore.source = null;
     }
   } catch (e) {
     console.error('[Novel-ST] Failed to init novel library store', e);
@@ -93,7 +98,7 @@ export async function saveNovelSource(source: NovelSource): Promise<void> {
     // 存入 IndexedDB
     await dbSaveNovel(source);
 
-    // 刷新列表
+    // 重新从数据库拉取最新列表，保证数据完全一致
     const list = await dbGetAllNovels();
     scenarioStore.novelsList = list;
 
@@ -109,6 +114,7 @@ export async function saveNovelSource(source: NovelSource): Promise<void> {
     }
   } catch (e) {
     console.error('[Novel-ST] Save novel source failed', e);
+    throw e;
   } finally {
     scenarioStore.isLoading = false;
   }

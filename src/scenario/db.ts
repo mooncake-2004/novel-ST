@@ -31,6 +31,13 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
+/**
+ * 将 Vue 响应式 Proxy 对象安全转换为纯净 JS 数据，杜绝 DataCloneError
+ */
+function cleanForStorage<T>(data: T): T {
+  return JSON.parse(JSON.stringify(data));
+}
+
 export async function dbGetAllNovels(): Promise<NovelSource[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -40,7 +47,6 @@ export async function dbGetAllNovels(): Promise<NovelSource[]> {
 
     req.onsuccess = () => {
       const list = (req.result as NovelSource[]) || [];
-      // 按照更新时间/创建时间倒序排列
       list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       resolve(list);
     };
@@ -63,13 +69,17 @@ export async function dbGetNovel(id: string): Promise<NovelSource | null> {
 
 export async function dbSaveNovel(novel: NovelSource): Promise<void> {
   const db = await openDB();
+  const safeData = cleanForStorage(novel);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    const req = store.put(novel);
+    const req = store.put(safeData);
 
     req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    req.onerror = (e) => {
+      console.error('[Novel-ST] dbSaveNovel put failed', req.error || e);
+      reject(req.error);
+    };
   });
 }
 

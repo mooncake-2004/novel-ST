@@ -1,6 +1,7 @@
 import { createApp, watch } from 'vue';
 import App from '@/App.vue';
 import { hydrateSettings, novelSettings } from '@/api/settings';
+import { loadScenarioStore } from '@/scenario/store';
 import { injectExtensionsMenu, syncTopBarButton } from '@/st/menu';
 import { initTheme } from '@/state/ui';
 import '@/styles/base.css';
@@ -43,6 +44,7 @@ function initNovelST(attempt = 0) {
     try {
       console.log('[Novel-ST] 正在挂载插件...');
       hydrateSettings();
+      loadScenarioStore();
       mountApp();
       injectExtensionsMenu();
       syncTopBarButton(novelSettings.showTopBarButton);

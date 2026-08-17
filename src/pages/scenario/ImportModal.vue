@@ -164,19 +164,26 @@ async function handleSaveSource() {
     return;
   }
 
-  const newSource: NovelSource = {
-    id: novelId.value || `novel_${Date.now()}`,
-    title: novelTitle.value.trim(),
-    protagonist: protagonist.value.trim() || '原著主角',
-    totalChars: totalChars.value,
-    chapters: parsedChapters.value,
-    createdAt: Date.now(),
-  };
+  isProcessing.value = true;
+  try {
+    const newSource: NovelSource = {
+      id: novelId.value || `novel_${Date.now()}`,
+      title: novelTitle.value.trim(),
+      protagonist: protagonist.value.trim() || '原著主角',
+      totalChars: totalChars.value,
+      chapters: parsedChapters.value,
+      createdAt: Date.now(),
+    };
 
-  await saveNovelSource(newSource);
-  toast(`《${newSource.title}》已妥善存入书架！共 ${newSource.chapters.length} 章节`, 'success');
-  emit('saved', newSource);
-  emit('close');
+    await saveNovelSource(newSource);
+    toast(`《${newSource.title}》已妥善存入书架！共 ${newSource.chapters.length} 章节`, 'success');
+    emit('saved', newSource);
+    emit('close');
+  } catch (err: any) {
+    toast(`保存至书架失败: ${err.message || err}`, 'error');
+  } finally {
+    isProcessing.value = false;
+  }
 }
 </script>
 
