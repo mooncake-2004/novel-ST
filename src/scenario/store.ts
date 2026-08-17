@@ -121,6 +121,27 @@ export async function saveNovelSource(source: NovelSource): Promise<void> {
 }
 
 /**
+ * 保存 L1 静态世界观至指定小说
+ */
+export async function saveL1WorldviewToNovel(
+  novelId: string,
+  worldview: import('./types').L1Worldview
+): Promise<void> {
+  const novel = await dbGetNovel(novelId);
+  if (!novel) return;
+
+  novel.l1Worldview = JSON.parse(JSON.stringify(worldview));
+  await dbSaveNovel(novel);
+
+  // 同步刷新内存
+  const list = await dbGetAllNovels();
+  scenarioStore.novelsList = list;
+  if (scenarioStore.activeNovelId === novelId) {
+    scenarioStore.source = novel;
+  }
+}
+
+/**
  * 重命名或编辑小说基本信息
  */
 export async function updateNovelMeta(id: string, title: string, protagonist: string): Promise<void> {

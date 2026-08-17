@@ -9,6 +9,7 @@ import {
 import type { NovelSource, SceneNode } from '@/scenario/types';
 import ImportModal from './ImportModal.vue';
 import LibraryModal from './LibraryModal.vue';
+import L1WorldviewModal from './L1WorldviewModal.vue';
 
 onMounted(() => {
   loadScenarioStore();
@@ -16,6 +17,7 @@ onMounted(() => {
 
 const showImportModal = ref(false);
 const showLibraryModal = ref(false);
+const showL1Modal = ref(false);
 const previewingNovel = ref<NovelSource | null>(null);
 
 const mockScenes = ref<SceneNode[]>([
@@ -84,6 +86,10 @@ function handleQuickSwitch(e: Event) {
   if (target.value) {
     switchActiveNovel(target.value);
   }
+}
+
+function handleWorldviewSaved() {
+  // Saved event callback
 }
 </script>
 
@@ -171,6 +177,46 @@ function handleQuickSwitch(e: Event) {
         </div>
         <div class="nst-source-next-box">
           <div class="nst-next-hint">已妥善保存在书架，随时可在多本小说间无缝换过去/换回来</div>
+        </div>
+      </div>
+
+      <!-- L1 Static Worldview Status & Action -->
+      <div class="nst-l1-extract-entry">
+        <div class="nst-l1-entry-left">
+          <div class="nst-l1-entry-title">
+            <Icon name="sparkles" :size="16" />
+            <span class="nst-l1-entry-label">全局静态世界观与全书图谱 (L1)</span>
+            <span
+              v-if="scenarioStore.source.l1Worldview && scenarioStore.source.l1Worldview.cleanedAt"
+              class="nst-l1-status-badge is-ready"
+            >
+              已提炼（{{ scenarioStore.source.l1Worldview.characters?.length || 0 }} 人物 · {{ scenarioStore.source.l1Worldview.factions?.length || 0 }} 势力 · {{ scenarioStore.source.l1Worldview.terms?.length || 0 }} 条目）
+            </span>
+            <span v-else class="nst-l1-status-badge is-pending">
+              尚未提炼
+            </span>
+          </div>
+          <div class="nst-l1-entry-desc">
+            {{
+              scenarioStore.source.l1Worldview && scenarioStore.source.l1Worldview.cleanedAt
+                ? '已提炼时代背景、规则常识、全书人物（含小配角）与专有名词。随时可检视或自由修改！'
+                : '一键调用 AI 扫描全书目录大纲与前序采样章节，提炼时代背景、规则体系与全书人物图谱（含小配角）。'
+            }}
+          </div>
+        </div>
+        <div class="nst-l1-entry-actions">
+          <button
+            class="nst-btn nst-btn-sm"
+            :class="scenarioStore.source.l1Worldview && scenarioStore.source.l1Worldview.cleanedAt ? 'nst-btn-secondary' : 'nst-btn-primary'"
+            @click="showL1Modal = true"
+          >
+            <Icon :name="scenarioStore.source.l1Worldview && scenarioStore.source.l1Worldview.cleanedAt ? 'search' : 'sparkles'" :size="14" />
+            {{
+              scenarioStore.source.l1Worldview && scenarioStore.source.l1Worldview.cleanedAt
+                ? '👁️ 检视/修改 L1 世界观'
+                : '✨ 提取全局静态世界观'
+            }}
+          </button>
         </div>
       </div>
     </div>
@@ -264,6 +310,15 @@ function handleQuickSwitch(e: Event) {
       @close="showLibraryModal = false"
       @open-import="handleOpenImportFresh"
       @view-chapters="handleViewChapters"
+    />
+
+    <!-- L1 Static Worldview Modal -->
+    <L1WorldviewModal
+      v-if="showL1Modal && scenarioStore.source"
+      :novel="scenarioStore.source"
+      :initial-worldview="scenarioStore.source.l1Worldview"
+      @close="showL1Modal = false"
+      @saved="handleWorldviewSaved"
     />
   </div>
 </template>
@@ -396,6 +451,67 @@ function handleQuickSwitch(e: Event) {
 .nst-next-hint {
   font-size: 11px;
   color: var(--nst-ink-dim);
+}
+
+/* L1 Static Worldview Entry */
+.nst-l1-extract-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--nst-bg-base);
+  border: 1px solid var(--nst-border);
+  border-radius: var(--nst-radius-sm);
+}
+
+.nst-l1-entry-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nst-l1-entry-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--nst-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.nst-l1-entry-label {
+  color: var(--nst-ink);
+}
+
+.nst-l1-status-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.nst-l1-status-badge.is-ready {
+  background-color: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.nst-l1-status-badge.is-pending {
+  background-color: rgba(234, 179, 8, 0.12);
+  color: #ca8a04;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.nst-l1-entry-desc {
+  font-size: 12px;
+  color: var(--nst-ink-dim);
+  line-height: 1.4;
+}
+
+.nst-l1-entry-actions {
+  flex-shrink: 0;
 }
 
 /* Empty State Card */
