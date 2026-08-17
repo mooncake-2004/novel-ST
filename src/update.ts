@@ -3,6 +3,8 @@ import { getContext } from '@/st/context';
 import { PLUGIN_VERSION } from '@/version';
 import { toast } from '@/st/toast';
 
+const CURRENT_VERSION = PLUGIN_VERSION;
+
 const MANIFEST_MIRRORS = [
   'https://raw.githubusercontent.com/mooncake-2004/novel-ST/main/manifest.json',
   'https://gh-proxy.org/https://raw.githubusercontent.com/mooncake-2004/novel-ST/main/manifest.json',
@@ -16,13 +18,17 @@ export const updateState = reactive<{
   available: boolean;
   checking: boolean;
   updating: boolean;
+  statusText: string;
 }>({
-  current: PLUGIN_VERSION,
+  current: CURRENT_VERSION,
   latest: '',
   available: false,
   checking: false,
   updating: false,
+  statusText: '',
 });
+
+let checkedThisSession = false;
 
 function isNewer(a: string, b: string): boolean {
   if (!a || !b) return false;
@@ -38,7 +44,7 @@ function isNewer(a: string, b: string): boolean {
   return false;
 }
 
-async function fetchFromUrl(url: string, timeoutMs = 5000): Promise<string> {
+async function fetchFromUrl(url: string, timeoutMs = 4000): Promise<string> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -58,16 +64,14 @@ async function fetchFromUrl(url: string, timeoutMs = 5000): Promise<string> {
 }
 
 async function readRemoteVersion(): Promise<string> {
-  // 逐个镜像快速尝试
   for (const mirror of MANIFEST_MIRRORS) {
-    const v = await fetchFromUrl(mirror, 4000);
+    const v = await fetchFromUrl(mirror, 3000);
     if (v) return v;
   }
 
-  // 兜底尝试 GitHub API
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const timer = setTimeout(() => ctrl.abort(), 4000);
     try {
       const resp = await fetch('https://api.github.com/repos/mooncake-2004/novel-ST/contents/manifest.json', {
         method: 'GET',
@@ -87,95 +91,81 @@ async function readRemoteVersion(): Promise<string> {
   return '';
 }
 
-export async function checkForUpdate(manual = false): Promise<void> {
+export async function checkForUpdate(force = false): Promise<void> {
   if (updateState.checking) return;
+  if (checkedThisSession && !force) return;
   updateState.checking = true;
   try {
     const latest = await readRemoteVersion();
     if (latest) {
       updateState.latest = latest;
-      updateState.available = isNewer(latest, PLUGIN_VERSION);
-      if (manual) {
+      updateState.available = isNewer(latest, CURRENT_VERSION);
+      if (force) {
         if (updateState.available) {
-          toast(`发现新版本 v${latest}，请点击「立即更新」`, 'info');
+          toast.info(`发现新版本 v${latest}，准备更新`);
         } else {
-          toast(`当前已是最新版本 (v${PLUGIN_VERSION})`, 'success');
+          toast.info(`当前已是最新版本 (v${CURRENT_VERSION})`);
         }
       }
-    } else if (manual) {
-      toast('无法连接到 GitHub 检查版本，请检查网络', 'warning');
+    } else if (force) {
+      toast.warning('未能连接到 GitHub 检查最新版本');
     }
+    checkedThisSession = true;
   } finally {
     updateState.checking = false;
   }
 }
 
-/**
- * 探测本扩展在 SillyTavern 中的实际文件夹名与安装类型
- */
-async function getExtensionInfo(): Promise<{ folder: string; isGlobal: boolean }> {
-  const ctx = getContext();
-  const headers = ctx?.getRequestHeaders?.() ?? {};
-  
-  let folder = 'novel-ST';
-  let isGlobal = false;
-
+function extensionFolderName(): string {
   try {
-    // 1. 从 import.meta.url 解析
     const path = new URL(import.meta.url).pathname;
     const marker = '/third-party/';
     const idx = path.indexOf(marker);
     if (idx >= 0) {
       const rest = path.slice(idx + marker.length);
-      const parsedFolder = rest.split('/')[0];
-      if (parsedFolder) folder = parsedFolder;
+      const folder = rest.split('/')[0];
+      if (folder) return folder;
     }
   } catch {}
+  return 'novel-ST';
+}
 
+async function discoverExtensionType(folder: string): Promise<'global' | 'local' | 'system' | null> {
   try {
-    // 2. 从 ST discover 列表精准匹配
+    const headers = getContext()?.getRequestHeaders?.() ?? {};
     const resp = await fetch('/api/extensions/discover', { method: 'GET', headers, cache: 'no-store' });
-    if (resp.ok) {
-      const list = await resp.json();
-      if (Array.isArray(list)) {
-        const hit = list.find(
-          (x: any) =>
-            x?.name === `third-party/${folder}` ||
-            x?.name?.toLowerCase().includes('novel-st') ||
-            x?.name?.toLowerCase().includes('novel_st')
-        );
-        if (hit) {
-          if (hit.name) {
-            folder = hit.name.replace(/^third-party\//, '');
-          }
-          if (hit.type === 'global') {
-            isGlobal = true;
-          }
-        }
-      }
-    }
-  } catch {}
-
-  return { folder, isGlobal };
+    if (!resp.ok) return null;
+    const list = (await resp.json()) as Array<{ name?: string; type?: string }>;
+    if (!Array.isArray(list)) return null;
+    const target = `third-party/${folder}`;
+    const hit = list.find((x) => x?.name === target || x?.name?.toLowerCase().includes('novel-st'));
+    const type = hit?.type;
+    return type === 'global' || type === 'local' || type === 'system' ? type : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function performUpdate(): Promise<void> {
   if (updateState.updating) return;
   updateState.updating = true;
+  updateState.statusText = '正在拉取最新代码...';
+  
   try {
-    const { folder, isGlobal } = await getExtensionInfo();
+    const folder = extensionFolderName();
+    const type = await discoverExtensionType(folder);
     const ctx = getContext();
     const headers = {
       'Content-Type': 'application/json',
       ...(ctx?.getRequestHeaders ? ctx.getRequestHeaders() : {}),
     };
 
-    toast('正在通过 SillyTavern 拉取最新代码...', 'info');
+    toast.info('正在从 GitHub 拉取更新，请稍候...', 'Novel-ST');
 
     const resp = await fetch('/api/extensions/update', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ extensionName: folder, global: isGlobal }),
+      body: JSON.stringify({ extensionName: folder, global: type === 'global' }),
     });
 
     if (!resp.ok) {
@@ -183,11 +173,17 @@ export async function performUpdate(): Promise<void> {
       throw new Error(text || resp.statusText || `HTTP ${resp.status}`);
     }
 
-    toast('🎉 更新成功，正在自动刷新页面...', 'success');
+    updateState.statusText = '更新成功，正在刷新...';
+    toast.success('🎉 插件已更新至最新版本！即将自动刷新页面...', 'Novel-ST');
     updateState.available = false;
-    setTimeout(() => location.reload(), 1200);
+
+    // 延迟 1 秒后自动强制刷新页面加载最新产物
+    setTimeout(() => {
+      window.location.reload();
+    }, 1000);
   } catch (err: any) {
-    toast(`更新失败: ${err.message || err}`, 'error');
+    updateState.statusText = '';
+    toast.error(`更新失败: ${err.message || err}`, 'Novel-ST');
   } finally {
     updateState.updating = false;
   }
