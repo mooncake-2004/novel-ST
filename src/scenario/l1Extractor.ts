@@ -1,5 +1,6 @@
 import { executeNovelTask } from '@/api/client';
 import type {
+  Chapter,
   L1Character,
   L1Faction,
   L1MacroArc,
@@ -12,139 +13,260 @@ function genId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/**
- * 智能采样小说文本构建提炼上下文：
- * 1. 完整章节目录 (TOC)
- * 2. 开篇 1~3 章完整正文 (确立世界基调与核心出场角色)
- * 3. 中期关键转折抽样章 (感知势力冲突与配角)
- * 4. 尾卷抽样章 (感知宏观全貌)
- */
-export function buildNovelSampleContext(novel: NovelSource): string {
-  const chapters = novel.chapters || [];
-  if (!chapters.length) return '';
-
-  // 1. 目录大纲
-  const toc = chapters
-    .map((c, idx) => `[第${idx + 1}章] ${c.title || `第${idx + 1}章`} (${c.charCount || c.content.length}字)`)
-    .join('\n');
-
-  // 2. 开篇正文 (最多前 3 章，合计不超过 15,000 字)
-  const introChapters = chapters.slice(0, 3);
-  const introText = introChapters
-    .map((c, idx) => `=== 【开篇第${idx + 1}章：${c.title}】 ===\n${c.content.slice(0, 5000)}`)
-    .join('\n\n');
-
-  // 3. 中期抽样
-  let midText = '';
-  if (chapters.length > 6) {
-    const midIdx = Math.floor(chapters.length / 2);
-    const midCh = chapters[midIdx];
-    midText = `=== 【中期转折抽样：${midCh.title}】 ===\n${midCh.content.slice(0, 4000)}`;
-  }
-
-  // 4. 后期抽样
-  let lateText = '';
-  if (chapters.length > 10) {
-    const lateIdx = Math.floor(chapters.length * 0.8);
-    const lateCh = chapters[lateIdx];
-    lateText = `=== 【后期高潮抽样：${lateCh.title}】 ===\n${lateCh.content.slice(0, 3000)}`;
-  }
-
-  return `
-《${novel.title}》全书概况与采样：
-总字数：${novel.totalChars} 字
-总章节：${chapters.length} 章
-玩家预设扮演角色：${novel.protagonist || '原著主角'}
-
-【完整章节目录】：
-${toc}
-
-【采样正文切片】：
-${introText}
-
-${midText}
-
-${lateText}
-`.trim();
-}
+export type ProgressCallback = (percent: number, message: string, foundCharsCount: number) => void;
 
 /**
  * 清洗并解析 JSON 结果
  */
 function cleanAndParseJson(raw: string): any {
   let cleaned = raw.trim();
-  // 匹配 markdown ```json ... ``` 块
   const jsonBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (jsonBlockMatch) {
     cleaned = jsonBlockMatch[1].trim();
   } else {
-    // 寻找最外层的 { ... }
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
       cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+    } else {
+      const firstBracket = cleaned.indexOf('[');
+      const lastBracket = cleaned.lastIndexOf(']');
+      if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+        cleaned = cleaned.substring(firstBracket, lastBracket + 1);
+      }
     }
   }
 
   try {
     return JSON.parse(cleaned);
   } catch (err: any) {
-    // 简单容错替换常见格式错误
     cleaned = cleaned
-      .replace(/,\s*([\]}])/g, '$1') // 移除末尾逗号
-      .replace(/[\u201C\u201D]/g, '"') // 替换中文双引号
+      .replace(/,\s*([\]}])/g, '$1')
+      .replace(/[\u201C\u201D]/g, '"')
       .replace(/[\u2018\u2019]/g, "'");
     return JSON.parse(cleaned);
   }
 }
 
 /**
- * 提取 L1 静态世界观与全书图谱
+ * 角色去重与初始状态锁定合并（严格保留首次出场的原生设定，防后期剧透与势力夺权污染）
+ */
+function mergeCharacters(
+  existingList: L1Character[],
+  newChars: Array<Partial<L1Character>>,
+  currentChunkRangeText: string
+): L1Character[] {
+  const result: L1Character[] = [...existingList];
+
+  const importanceRank = {
+    protagonist: 4,
+    major: 3,
+    supporting: 2,
+    minor: 1,
+  };
+
+  for (const nc of newChars) {
+    if (!nc.name || !nc.name.trim()) continue;
+    const name = nc.name.trim();
+
+    // 查找已存在角色 (同名或别名命中)
+    const existing = result.find(
+      (c) =>
+        c.name.toLowerCase() === name.toLowerCase() ||
+        (c.aliases && c.aliases.some((a) => a.toLowerCase() === name.toLowerCase())) ||
+        (nc.aliases && nc.aliases.some((a) => a.toLowerCase() === c.name.toLowerCase()))
+    );
+
+    const imp = (['protagonist', 'major', 'supporting', 'minor'].includes(nc.importance as any)
+      ? nc.importance
+      : 'minor') as L1Character['importance'];
+
+    if (existing) {
+      // 关键原则：已存在角色的【首次登场身份、原生势力、首次出场章节、初始态度】保持最早记录不变！
+      // 只合并补充别名与重要度提档
+      if (Array.isArray(nc.aliases)) {
+        for (const a of nc.aliases) {
+          if (a && !existing.aliases.includes(a) && a !== existing.name) {
+            existing.aliases.push(a);
+          }
+        }
+      }
+      if (importanceRank[imp] > importanceRank[existing.importance]) {
+        existing.importance = imp;
+      }
+      // 补充缺失字段
+      if (!existing.personality && nc.personality) existing.personality = nc.personality;
+      if (!existing.identity && nc.identity) existing.identity = nc.identity;
+      if (!existing.faction && nc.faction) existing.faction = nc.faction;
+      if (!existing.initialRelation && nc.initialRelation) existing.initialRelation = nc.initialRelation;
+    } else {
+      // 新发现角色：首次记录其原始状态
+      result.push({
+        id: genId('char'),
+        name: name,
+        aliases: Array.isArray(nc.aliases) ? nc.aliases.filter(Boolean) : [],
+        identity: nc.identity || '',
+        personality: nc.personality || '',
+        initialRelation: nc.initialRelation || '初识/未知',
+        faction: nc.faction || undefined,
+        firstAppearance: nc.firstAppearance || currentChunkRangeText,
+        importance: imp,
+        summary: nc.summary || '',
+      });
+    }
+  }
+
+  // 排序：主角 > 核心 > 配角 > 小配角
+  return result.sort(
+    (a, b) => importanceRank[b.importance] - importanceRank[a.importance]
+  );
+}
+
+/**
+ * 将整本小说拆解为适合 LLM 扫描的批次 (每批约 6~12 章)
+ */
+function chunkChapters(chapters: Chapter[], targetBatchChars: number = 25000): Chapter[][] {
+  const chunks: Chapter[][] = [];
+  let currentChunk: Chapter[] = [];
+  let currentChars = 0;
+
+  for (const ch of chapters) {
+    const chLen = ch.charCount || ch.content.length || 0;
+    if (currentChars + chLen > targetBatchChars && currentChunk.length > 0) {
+      chunks.push(currentChunk);
+      currentChunk = [ch];
+      currentChars = chLen;
+    } else {
+      currentChunk.push(ch);
+      currentChars += chLen;
+    }
+  }
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
+/**
+ * 全书全量扫描：分卷扫描全书所有章节 + 严格提取【Day 0 原始世界状态与首次登场设定】
  */
 export async function extractL1Worldview(
   novel: NovelSource,
-  customProtagonist?: string
+  onProgress?: ProgressCallback
 ): Promise<{ worldview: L1Worldview; source: string; latencyMs: number }> {
-  const sampleContext = buildNovelSampleContext(novel);
-  if (!sampleContext) {
+  const chapters = novel.chapters || [];
+  if (!chapters.length) {
     throw new Error('当前小说无有效章节内容，无法提炼世界观');
   }
 
-  const systemPrompt = `你是一位资深网络文学架构师与互动剧本总导演。你的任务是通读给定的长篇小说目录与采样正文，全面提炼该小说的【L1 静态世界观基底与全书图谱】。
+  const startTime = performance.now();
+  let executedSource = 'AI 模型';
 
-请务必输出严格合法的 JSON 对象，不要输出任何额外的解释性前言或后缀。
+  // 1. 拆分全书批次
+  const chunks = chunkChapters(chapters, 30000);
+  const totalChunks = chunks.length;
+  let allCharacters: L1Character[] = [];
 
-JSON 输出格式模板：
+  onProgress?.(5, `已将全书 ${chapters.length} 章节划分为 ${totalChunks} 个扫描卷，开始全量逐卷扫描初始状态...`, 0);
+
+  // 2. 逐批次扫描角色与原生势力
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = chunks[i];
+    const firstCh = chunk[0];
+    const lastCh = chunk[chunk.length - 1];
+    const rangeLabel = `第${firstCh.index + 1}章「${firstCh.title}」至 第${lastCh.index + 1}章「${lastCh.title}」`;
+
+    const percent = Math.round(5 + ((i + 1) / (totalChunks + 1)) * 75);
+    onProgress?.(
+      percent,
+      `正在扫描【卷 ${i + 1}/${totalChunks}】(${rangeLabel})...`,
+      allCharacters.length
+    );
+
+    const chunkContent = chunk
+      .map(
+        (c) =>
+          `--- 【第${c.index + 1}章：${c.title}】 ---\n${c.content.slice(0, 4000)}`
+      )
+      .join('\n\n');
+
+    const chunkSystemPrompt = `你是一位严谨的小说人物图谱提取专家。
+请仔细阅读以下小说章节切片，挖掘并提取在本章节范围内【所有出场、被提及、有互动戏份的角色】（包括主角、反派、配角、侍女、小太监、侍卫等小配角）。
+
+【⚠️ 铁律准则——严格提取“首次出场原生状态”，严禁后期剧透与归顺篡位】：
+1. 【原生身份与势力】：角色填写的 identity 和 faction 必须是其【在本章节/首次登场时原本所属的身份与阵营】！例如某势力后期虽被主角接管，但本章节中仍由原势力主统治，必须填原势力；若某角色原本是反派/敌对宗门，严禁将其势力直接填为“主角手下”！
+2. 【初始态度】：必须填写该角色初见/首次登场时对主角或当时局势的原始态度（如：冷漠审视、利用防备、傲慢轻视、纯粹交易、敌视等），严禁填写后期反转爱上或臣服于主角后的态度！
+3. 【无大结局剧透】：summary 仅提炼该角色的核心性格特征、口吻语气、固有秘密与性格底线软肋，不得剧透后文死亡、退隐或大结局！
+
+请严格输出 JSON 数组格式：
+[
+  {
+    "name": "角色准确姓名",
+    "aliases": ["别名", "尊称", "外号"],
+    "identity": "本章节/首次出场时的表面身份与官职/地位",
+    "personality": "性格特征、说话口吻与行事习惯",
+    "initialRelation": "初次登场时对主角的初始态度/关系（如冷漠/戒备/敌视/利用）",
+    "faction": "首次出场时所属的原生势力（严禁填后期归顺状态）",
+    "firstAppearance": "第${firstCh.index + 1}章「${firstCh.title}」",
+    "importance": "protagonist / major / supporting / minor",
+    "summary": "核心性格特征、固有动机与底线软肋（50~150字，不含大结局剧透）"
+  }
+]`;
+
+    const chunkUserPrompt = `小说书名：《${novel.title}》
+当前扫描章节范围：${rangeLabel} (共 ${chunk.length} 章)
+
+${chunkContent}
+`;
+
+    try {
+      const res = await executeNovelTask('parser', chunkSystemPrompt, chunkUserPrompt);
+      executedSource = res.source;
+      const parsedList = cleanAndParseJson(res.text);
+      if (Array.isArray(parsedList)) {
+        allCharacters = mergeCharacters(allCharacters, parsedList, `第${firstCh.index + 1}章`);
+      }
+    } catch (e: any) {
+      console.warn(`[Novel-ST] Scan chunk ${i + 1} warning:`, e);
+    }
+  }
+
+  // 3. 全书大纲、开局初始世界观、原生势力统筹 (Pass 2)
+  onProgress?.(85, '全书章节扫描完毕，正在提炼开局初始时代背景、初始势力与宏观篇章路线...', allCharacters.length);
+
+  const toc = chapters
+    .map((c, idx) => `[第${idx + 1}章] ${c.title || `第${idx + 1}章`}`)
+    .join('\n');
+
+  const globalSystemPrompt = `你是一位资深网络文学总架构师。
+你已拥有该小说的全书目录和全书已挖掘的人物图谱（共 ${allCharacters.length} 位角色）。
+你的任务是对《${novel.title}》进行【L1 静态基底：故事开局 Day 0 初始世界观与原生势力】的全局统筹提炼。
+
+【⚠️ 铁律准则——必须为故事开局/最初始的静态状态】：
+1. 【势力与领袖】：factions 中列出的势力领袖（leader）和立场（stance），必须是【故事开局第一幕时的实际执掌者和初始立场】！严禁将主角后期接管、夺权后的状态填入领袖！例如司礼监在开局由某督公执掌就必须填该督公，绝不能提前写成主角接管。
+2. 【时代背景与规则】：提炼开局时的社会常识、法度等级与力量层级，作为沙盒推演的稳固基石。
+
+请务必输出严格合法的 JSON 对象：
 {
   "novelTitle": "${novel.title}",
   "originalProtagonist": "原著第一主角真实姓名",
-  "background": "时代背景、地理格局、历史渊源与基本世界设定（400~800字，详尽严谨，还原原著氛围）",
-  "ruleSystem": "规则体系与社会常识（包括朝廷法度、官职体系、力量/修仙/魔法层级、社会等级与不可触犯的禁忌常理，400~800字）",
+  "background": "故事开局时的时代背景、地理格局、历史渊源与基本世界设定（400~800字，详尽严谨）",
+  "ruleSystem": "故事开局时的规则体系与社会常识（包括朝廷法度、官职体系、力量/修仙/武道层级、社会等级与不可触犯的禁忌常理，400~800字）",
   "factions": [
     {
-      "name": "势力/组织名称（如：司礼监、锦衣卫、云岚宗、内阁、某世家）",
-      "leader": "领袖/掌权者姓名",
-      "stance": "在故事中的立场（如：朝廷鹰犬/中立/主角依靠/敌对）",
-      "summary": "势力核心职能、特权、驻地与内部矛盾（100~200字）"
-    }
-  ],
-  "characters": [
-    {
-      "name": "角色姓名",
-      "aliases": ["别名", "外号", "尊称"],
-      "identity": "表面身份与官职/地位",
-      "personality": "性格特质、语言语气习惯与行事风格",
-      "initialRelation": "与主角的初始关系与态度（防备/利用/关照/敌视/依恋等）",
-      "faction": "所属势力名称",
-      "importance": "protagonist / major / supporting / minor",
-      "summary": "生平小传、核心秘密、不可触碰的软肋与不可退让的底线（100~200字）"
+      "name": "势力/门派/机构名称（如：司礼监、云岚宗、内阁、某世家）",
+      "leader": "故事开局时的初始领袖/掌权者姓名（严禁填主角后期夺权）",
+      "stance": "开局立场（如：朝廷鹰犬 / 中立门阀 / 皇权正统 / 隐秘敌对）",
+      "summary": "初始势力核心职能、特权、驻地与内部矛盾（100~200字）"
     }
   ],
   "terms": [
     {
-      "name": "专有名词名称（如特定地点/官衔/信物/秘宝/阵法/功法）",
+      "name": "专有名词名称（如特定地点/官衔/秘宝/阵法/信物）",
       "category": "location / item / concept / custom",
-      "content": "详细定义与背景渊源"
+      "content": "初始定义与背景渊源"
     }
   ],
   "macroArcs": [
@@ -156,33 +278,37 @@ JSON 输出格式模板：
       "summary": "本阶段剧情起承转合简述"
     }
   ]
-}
+}`;
 
-【核心提取准则】：
-1. 【全角色挖掘】：不仅要提炼男女主，更务必挖掘小说中出场的重要反派、关键配角、乃至有互动戏份的侍从/属下/同门等小配角（importance 标为 minor），以便玩家自由选择对戏角色！
-2. 【原著忠实】：严格基于原著世界设定，不得凭空胡编现代违和概念。
-3. 【数据规范】：每个角色必须明确注明 importance（'protagonist' | 'major' | 'supporting' | 'minor'）和所属势力。
-`;
+  const topCharsPreview = allCharacters
+    .slice(0, 30)
+    .map((c) => `• ${c.name} (${c.identity || '未知身份'}) [首登场: ${c.firstAppearance || '开篇'}] - ${c.importance}`)
+    .join('\n');
 
-  const userPrompt = `
-请阅读以下《${novel.title}》的目录大纲与文本片段，提炼并输出完整的 L1 静态世界观 JSON：
+  const globalUserPrompt = `
+小说书名：《${novel.title}》
+总章节数：${chapters.length} 章
+总字数：${novel.totalChars} 字
 
-${sampleContext}
+【全书已挖掘的人物及首次登场概览】：
+${topCharsPreview}
+
+【全书完整章节目录】：
+${toc}
 `.trim();
 
-  // 调度 'parser' 任务对应的副 API 或主 API
-  const result = await executeNovelTask('parser', systemPrompt, userPrompt);
-  const parsed = cleanAndParseJson(result.text);
+  const globalRes = await executeNovelTask('parser', globalSystemPrompt, globalUserPrompt);
+  const globalParsed = cleanAndParseJson(globalRes.text);
 
-  // 格式化并补齐默认 ID
+  // 整合构建最终 L1Worldview
   const worldview: L1Worldview = {
     novelId: novel.id,
-    novelTitle: parsed.novelTitle || novel.title,
-    originalProtagonist: parsed.originalProtagonist || novel.protagonist || '原著主角',
-    background: parsed.background || '',
-    ruleSystem: parsed.ruleSystem || '',
-    factions: Array.isArray(parsed.factions)
-      ? parsed.factions.map((f: any) => ({
+    novelTitle: globalParsed.novelTitle || novel.title,
+    originalProtagonist: globalParsed.originalProtagonist || novel.protagonist || '原著主角',
+    background: globalParsed.background || '',
+    ruleSystem: globalParsed.ruleSystem || '',
+    factions: Array.isArray(globalParsed.factions)
+      ? globalParsed.factions.map((f: any) => ({
           id: genId('fac'),
           name: String(f.name || '未命名势力'),
           leader: f.leader ? String(f.leader) : undefined,
@@ -190,23 +316,9 @@ ${sampleContext}
           summary: String(f.summary || ''),
         }))
       : [],
-    characters: Array.isArray(parsed.characters)
-      ? parsed.characters.map((c: any) => ({
-          id: genId('char'),
-          name: String(c.name || '未命名人物'),
-          aliases: Array.isArray(c.aliases) ? c.aliases.map(String) : [],
-          identity: String(c.identity || ''),
-          personality: String(c.personality || ''),
-          initialRelation: String(c.initialRelation || ''),
-          faction: c.faction ? String(c.faction) : undefined,
-          importance: ['protagonist', 'major', 'supporting', 'minor'].includes(c.importance)
-            ? c.importance
-            : 'supporting',
-          summary: String(c.summary || ''),
-        }))
-      : [],
-    terms: Array.isArray(parsed.terms)
-      ? parsed.terms.map((t: any) => ({
+    characters: allCharacters,
+    terms: Array.isArray(globalParsed.terms)
+      ? globalParsed.terms.map((t: any) => ({
           id: genId('term'),
           name: String(t.name || '未命名条目'),
           category: ['location', 'item', 'concept', 'custom'].includes(t.category)
@@ -215,8 +327,8 @@ ${sampleContext}
           content: String(t.content || ''),
         }))
       : [],
-    macroArcs: Array.isArray(parsed.macroArcs)
-      ? parsed.macroArcs.map((a: any, idx: number) => ({
+    macroArcs: Array.isArray(globalParsed.macroArcs)
+      ? globalParsed.macroArcs.map((a: any, idx: number) => ({
           id: genId('arc'),
           index: typeof a.index === 'number' ? a.index : idx + 1,
           title: String(a.title || `第${idx + 1}阶段`),
@@ -228,30 +340,32 @@ ${sampleContext}
     cleanedAt: Date.now(),
   };
 
+  onProgress?.(100, `🎉 全书扫描完成！已提取 ${worldview.characters.length} 位人物初始档案、${worldview.factions.length} 个初始势力（Day 0 原始状态）`, worldview.characters.length);
+
   return {
     worldview,
-    source: result.source,
-    latencyMs: result.latencyMs,
+    source: executedSource,
+    latencyMs: Math.round(performance.now() - startTime),
   };
 }
 
 /**
- * 默认空世界观模板 (供手动创建或离线预置)
+ * 默认空世界观模板
  */
 export function createDefaultL1Worldview(novel: NovelSource): L1Worldview {
   return {
     novelId: novel.id,
     novelTitle: novel.title,
     originalProtagonist: novel.protagonist || '原著主角',
-    background: '请在此输入小说所处的时代背景、地理环境、朝代制度或大千世界格局...',
-    ruleSystem: '请在此输入本世界的法度规矩、力量层级、武学/功法/阶级常识及不可触犯的禁忌...',
+    background: '请在此输入小说故事开局时的时代背景、地理环境、朝代制度或大千世界格局...',
+    ruleSystem: '请在此输入本世界开局时的法度规矩、力量层级、武学/功法/阶级常识及不可触犯的禁忌...',
     factions: [
       {
         id: genId('fac'),
-        name: '核心势力 A',
-        leader: '掌门 / 督公 / 皇上',
+        name: '初始势力 A',
+        leader: '原著初始掌门 / 督公 / 皇上',
         stance: '朝廷中枢',
-        summary: '掌握核心权力的统治组织。',
+        summary: '故事开局时的原始统治组织与核心职责。',
       },
     ],
     characters: [
@@ -259,11 +373,12 @@ export function createDefaultL1Worldview(novel: NovelSource): L1Worldview {
         id: genId('char'),
         name: novel.protagonist || '主角姓名',
         aliases: [],
-        identity: '表面身份',
+        identity: '故事开局时的初始身份',
         personality: '性格沉着、心思缜密',
         initialRelation: '自身',
+        firstAppearance: '第1章',
         importance: 'protagonist',
-        summary: '故事第一主角。',
+        summary: '故事第一主角开篇档案。',
       },
     ],
     terms: [
@@ -271,7 +386,7 @@ export function createDefaultL1Worldview(novel: NovelSource): L1Worldview {
         id: genId('term'),
         name: '核心地点',
         category: 'location',
-        content: '故事主要发生地。',
+        content: '故事开局主要发生地。',
       },
     ],
     macroArcs: [

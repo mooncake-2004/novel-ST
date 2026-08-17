@@ -385,21 +385,30 @@ async function handleSaveWorldview() {
 
               <div class="nst-card-fields">
                 <div class="nst-field-row">
-                  <label>身份地位：</label>
+                  <label>登场身份：</label>
                   <input
                     v-model="char.identity"
                     type="text"
                     class="nst-input"
-                    placeholder="例如：司礼监掌印太监 / 萧家三少爷"
+                    placeholder="首次出场时的表面身份/官职"
                   />
                 </div>
                 <div class="nst-field-row">
-                  <label>所属势力：</label>
+                  <label>原生势力：</label>
                   <input
                     v-model="char.faction"
                     type="text"
                     class="nst-input"
-                    placeholder="所属派系"
+                    placeholder="首次登场所属势力（非后期接管）"
+                  />
+                </div>
+                <div class="nst-field-row">
+                  <label>首次登场：</label>
+                  <input
+                    v-model="char.firstAppearance"
+                    type="text"
+                    class="nst-input"
+                    placeholder="例如：第1章 · 司礼监东配房"
                   />
                 </div>
                 <div class="nst-field-row">
@@ -408,11 +417,11 @@ async function handleSaveWorldview() {
                     v-model="char.initialRelation"
                     type="text"
                     class="nst-input"
-                    placeholder="与主角的初始态度/关系"
+                    placeholder="首次登场时对主角态度（如：冷漠戒备/审视利用）"
                   />
                 </div>
                 <div class="nst-field-col">
-                  <label>性格与说话习惯：</label>
+                  <label>性格与口吻习惯：</label>
                   <input
                     v-model="char.personality"
                     type="text"
@@ -421,12 +430,12 @@ async function handleSaveWorldview() {
                   />
                 </div>
                 <div class="nst-field-col">
-                  <label>人物小传、秘密与底线软肋：</label>
+                  <label>初始小传与性格软肋底线：</label>
                   <textarea
                     v-model="char.summary"
                     class="nst-textarea nst-textarea-sm"
                     rows="3"
-                    placeholder="生平背景、不可退让的底线与隐藏动机..."
+                    placeholder="生平背景、性格软肋与不可退让的底线（无后期剧透）..."
                   ></textarea>
                 </div>
               </div>
@@ -494,30 +503,30 @@ async function handleSaveWorldview() {
 
               <div class="nst-card-fields">
                 <div class="nst-field-row">
-                  <label>掌权领袖：</label>
+                  <label>初始领袖：</label>
                   <input
                     v-model="fac.leader"
                     type="text"
                     class="nst-input"
-                    placeholder="领袖姓名"
+                    placeholder="开局时的掌权者（非主角后期夺权）"
                   />
                 </div>
                 <div class="nst-field-row">
-                  <label>核心立场：</label>
+                  <label>开局立场：</label>
                   <input
                     v-model="fac.stance"
                     type="text"
                     class="nst-input"
-                    placeholder="例如：朝廷中枢 / 宗门正统 / 隐秘敌对"
+                    placeholder="例如：朝廷鹰犬 / 中立门阀 / 皇权正统"
                   />
                 </div>
                 <div class="nst-field-col">
-                  <label>职能与背景概述：</label>
+                  <label>初始职能与特权概述：</label>
                   <textarea
                     v-model="fac.summary"
                     class="nst-textarea nst-textarea-sm"
                     rows="3"
-                    placeholder="势力核心特权、驻地、内部矛盾与影响范围..."
+                    placeholder="开局时的势力特权、驻地、内部矛盾与影响范围..."
                   ></textarea>
                 </div>
               </div>
