@@ -9,6 +9,7 @@ import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{
   open: boolean;
+  initialNovel?: NovelSource | null;
 }>();
 
 const emit = defineEmits<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
 const currentStep = ref<1 | 2>(1);
 
 // Input Form
+const novelId = ref<string>('');
 const novelTitle = ref('');
 const protagonist = ref('');
 const inputMode = ref<'paste' | 'file'>('paste');
@@ -34,6 +36,9 @@ const selectedChapterId = ref<string>('');
 
 // Stats
 const totalChars = computed(() => {
+  if (parsedChapters.value.length && currentStep.value === 2) {
+    return parsedChapters.value.reduce((acc, c) => acc + c.charCount, 0);
+  }
   return rawText.value.length;
 });
 
@@ -53,8 +58,22 @@ watch(
   () => props.open,
   (val) => {
     if (val) {
-      // Reset form if opening fresh
-      if (!parsedChapters.value.length) {
+      if (props.initialNovel) {
+        // Load existing novel into step 2
+        novelId.value = props.initialNovel.id;
+        novelTitle.value = props.initialNovel.title;
+        protagonist.value = props.initialNovel.protagonist || '';
+        parsedChapters.value = [...props.initialNovel.chapters];
+        selectedChapterId.value = props.initialNovel.chapters[0]?.id || '';
+        currentStep.value = 2;
+      } else {
+        // Fresh import
+        novelId.value = '';
+        novelTitle.value = '';
+        protagonist.value = '';
+        rawText.value = '';
+        fileName.value = '';
+        parsedChapters.value = [];
         currentStep.value = 1;
       }
     }
@@ -139,23 +158,23 @@ function toggleSelectAll(select: boolean) {
 }
 
 // Save novel source
-function handleSaveSource() {
+async function handleSaveSource() {
   if (!novelTitle.value.trim()) {
     toast('请为小说填写一个标题', 'warning');
     return;
   }
 
   const newSource: NovelSource = {
-    id: `novel_${Date.now()}`,
+    id: novelId.value || `novel_${Date.now()}`,
     title: novelTitle.value.trim(),
-    protagonist: protagonist.value.trim() || '主角',
-    totalChars: rawText.value.length,
+    protagonist: protagonist.value.trim() || '原著主角',
+    totalChars: totalChars.value,
     chapters: parsedChapters.value,
     createdAt: Date.now(),
   };
 
-  saveNovelSource(newSource);
-  toast(`《${newSource.title}》录入成功！共 ${newSource.chapters.length} 章节`, 'success');
+  await saveNovelSource(newSource);
+  toast(`《${newSource.title}》已妥善存入书架！共 ${newSource.chapters.length} 章节`, 'success');
   emit('saved', newSource);
   emit('close');
 }
@@ -163,21 +182,25 @@ function handleSaveSource() {
 
 <template>
   <ModalMask :open="open" max-width="920px" @close="emit('close')">
-    <div class="nst-import-container">
+    <div class="nst-import-container" @click.stop>
       <!-- Modal Header -->
       <div class="nst-import-header">
         <div class="nst-header-info">
           <h3 class="nst-import-title">
             <Icon name="scenario" :size="20" />
-            小说导入与智能分章验证
+            {{ initialNovel ? '小说章节浏览与管理' : '小说导入与智能分章验证' }}
           </h3>
           <span class="nst-import-desc">
-            第一步：输入/上传小说文本并验证章节提取切片
+            {{
+              initialNovel
+                ? `当前查看：《${novelTitle}》（共 ${parsedChapters.length} 章节）`
+                : '输入/上传小说文本，自动扫描章节标号并切片保存至书架'
+            }}
           </span>
         </div>
 
-        <!-- Step Pills -->
-        <div class="nst-step-pills">
+        <!-- Step Pills / Close button -->
+        <div v-if="!initialNovel" class="nst-step-pills">
           <div class="nst-step-pill" :class="{ 'is-active': currentStep === 1 }">
             1. 录入文本
           </div>
@@ -186,6 +209,9 @@ function handleSaveSource() {
             2. 分章与内容预览
           </div>
         </div>
+        <button v-else class="nst-icon-btn" @click="emit('close')">
+          <Icon name="close" :size="18" />
+        </button>
       </div>
 
       <!-- STEP 1: Input Form -->
@@ -200,7 +226,7 @@ function handleSaveSource() {
               v-model="novelTitle"
               type="text"
               class="nst-input"
-              placeholder="例如：《斗破苍穹》或《哈利波特》"
+              placeholder="例如：《嫁宦》或《诡秘之主》"
             />
           </div>
 
@@ -212,7 +238,7 @@ function handleSaveSource() {
               v-model="protagonist"
               type="text"
               class="nst-input"
-              placeholder="例如：萧炎（留空默认为原著主角）"
+              placeholder="例如：林尽染（留空默认为原著主角）"
             />
           </div>
         </div>
@@ -310,7 +336,7 @@ function handleSaveSource() {
         <!-- Overview Banner -->
         <div class="nst-overview-bar">
           <div class="nst-stat-item">
-            <span class="nst-stat-label">剧本</span>
+            <span class="nst-stat-label">书名</span>
             <span class="nst-stat-val">《{{ novelTitle || '未命名' }}》</span>
           </div>
           <div class="nst-stat-item">
@@ -400,7 +426,11 @@ function handleSaveSource() {
 
         <!-- Step 2 Footer -->
         <div class="nst-modal-actions">
-          <button class="nst-btn nst-btn-secondary" @click="currentStep = 1">
+          <button
+            v-if="!initialNovel"
+            class="nst-btn nst-btn-secondary"
+            @click="currentStep = 1"
+          >
             ⬅ 返回修改文本
           </button>
           <button
@@ -409,7 +439,7 @@ function handleSaveSource() {
             @click="handleSaveSource"
           >
             <Icon name="check" :size="16" />
-            确认并完成录入 (已选 {{ selectedChaptersCount }} 章)
+            {{ initialNovel ? '保存章节与设定更改' : `存入书架并完成录入 (已选 ${selectedChaptersCount} 章)` }}
           </button>
         </div>
       </div>

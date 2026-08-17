@@ -1,93 +1,168 @@
-import { reactive, watch } from 'vue';
+import { computed, reactive } from 'vue';
 import { getContext } from '@/st/context';
-import type { NovelSource, ScenarioPack, SceneNode } from './types';
+import { dbDeleteNovel, dbGetAllNovels, dbGetNovel, dbSaveNovel } from './db';
+import type { NovelSource, ScenarioPack } from './types';
 
-const SOURCE_STORAGE_KEY = 'novel_st_source_v1';
-const SCENARIO_STORAGE_KEY = 'novel_st_active_scenario_v1';
+const ACTIVE_NOVEL_ID_KEY = 'novel_st_active_novel_id_v1';
 
 export const scenarioStore = reactive<{
   source: NovelSource | null;
+  novelsList: NovelSource[];
+  activeNovelId: string | null;
   activeScenario: ScenarioPack | null;
-  savedScenarios: ScenarioPack[];
   isLoading: boolean;
 }>({
   source: null,
+  novelsList: [],
+  activeNovelId: null,
   activeScenario: null,
-  savedScenarios: [],
   isLoading: false,
 });
 
 /**
- * 从本地或 ST 加载持久化数据
+ * 初始化小说库与活跃小说
  */
-export function loadScenarioStore(): void {
+export async function loadScenarioStore(): Promise<void> {
+  scenarioStore.isLoading = true;
   try {
-    const rawSrc = localStorage.getItem(SOURCE_STORAGE_KEY);
-    if (rawSrc) {
-      scenarioStore.source = JSON.parse(rawSrc);
-    }
-  } catch (e) {
-    console.warn('[Novel-ST] Failed to load source from storage', e);
-  }
+    // 1. 从 IndexedDB 加载所有已录入的小说清单
+    const list = await dbGetAllNovels();
+    scenarioStore.novelsList = list;
 
-  try {
-    const rawSc = localStorage.getItem(SCENARIO_STORAGE_KEY);
-    if (rawSc) {
-      scenarioStore.activeScenario = JSON.parse(rawSc);
+    // 2. 读取当前活跃小说 ID
+    let activeId = localStorage.getItem(ACTIVE_NOVEL_ID_KEY);
+    const ctx = getContext();
+    if (ctx?.extensionSettings?.['novel_st']?.activeNovelId) {
+      activeId = ctx.extensionSettings['novel_st'].activeNovelId;
+    }
+
+    // 3. 匹配活跃小说
+    if (activeId) {
+      const found = list.find((n) => n.id === activeId);
+      if (found) {
+        scenarioStore.activeNovelId = found.id;
+        scenarioStore.source = found;
+      } else if (list.length > 0) {
+        // 如果之前选中的已被删除，自动选择第一个
+        scenarioStore.activeNovelId = list[0].id;
+        scenarioStore.source = list[0];
+      }
+    } else if (list.length > 0) {
+      scenarioStore.activeNovelId = list[0].id;
+      scenarioStore.source = list[0];
     }
   } catch (e) {
-    console.warn('[Novel-ST] Failed to load active scenario', e);
+    console.error('[Novel-ST] Failed to init novel library store', e);
+  } finally {
+    scenarioStore.isLoading = false;
   }
 }
 
 /**
- * 保存导入的小说源数据
+ * 切换活跃小说（换过去 / 换回来）
  */
-export function saveNovelSource(source: NovelSource): void {
-  scenarioStore.source = source;
+export async function switchActiveNovel(id: string): Promise<void> {
+  scenarioStore.isLoading = true;
   try {
-    localStorage.setItem(SOURCE_STORAGE_KEY, JSON.stringify(source));
+    const novel = await dbGetNovel(id);
+    if (novel) {
+      scenarioStore.activeNovelId = novel.id;
+      scenarioStore.source = novel;
+
+      // 持久化活跃 ID
+      localStorage.setItem(ACTIVE_NOVEL_ID_KEY, novel.id);
+      const ctx = getContext();
+      if (ctx?.extensionSettings) {
+        if (!ctx.extensionSettings['novel_st']) ctx.extensionSettings['novel_st'] = {};
+        ctx.extensionSettings['novel_st'].activeNovelId = novel.id;
+      }
+    }
+  } catch (e) {
+    console.error('[Novel-ST] Switch active novel failed', e);
+  } finally {
+    scenarioStore.isLoading = false;
+  }
+}
+
+/**
+ * 保存新录入的小说并自动切换为活跃小说
+ */
+export async function saveNovelSource(source: NovelSource): Promise<void> {
+  scenarioStore.isLoading = true;
+  try {
+    // 存入 IndexedDB
+    await dbSaveNovel(source);
+
+    // 刷新列表
+    const list = await dbGetAllNovels();
+    scenarioStore.novelsList = list;
+
+    // 切换当前激活
+    scenarioStore.activeNovelId = source.id;
+    scenarioStore.source = source;
+
+    localStorage.setItem(ACTIVE_NOVEL_ID_KEY, source.id);
     const ctx = getContext();
     if (ctx?.extensionSettings) {
       if (!ctx.extensionSettings['novel_st']) ctx.extensionSettings['novel_st'] = {};
-      ctx.extensionSettings['novel_st'].lastNovelSource = {
-        id: source.id,
-        title: source.title,
-        protagonist: source.protagonist,
-        totalChars: source.totalChars,
-        chapterCount: source.chapters.length,
-      };
+      ctx.extensionSettings['novel_st'].activeNovelId = source.id;
     }
   } catch (e) {
-    console.error('[Novel-ST] Save novel source error', e);
+    console.error('[Novel-ST] Save novel source failed', e);
+  } finally {
+    scenarioStore.isLoading = false;
   }
 }
 
 /**
- * 保存并激活剧本包
+ * 重命名或编辑小说基本信息
  */
-export function saveActiveScenario(pack: ScenarioPack): void {
-  scenarioStore.activeScenario = pack;
-  try {
-    localStorage.setItem(SCENARIO_STORAGE_KEY, JSON.stringify(pack));
-    const ctx = getContext();
-    if (ctx?.extensionSettings) {
-      if (!ctx.extensionSettings['novel_st']) ctx.extensionSettings['novel_st'] = {};
-      ctx.extensionSettings['novel_st'].activeScenario = pack;
-    }
-  } catch (e) {
-    console.error('[Novel-ST] Save active scenario error', e);
+export async function updateNovelMeta(id: string, title: string, protagonist: string): Promise<void> {
+  const novel = await dbGetNovel(id);
+  if (!novel) return;
+
+  novel.title = title;
+  novel.protagonist = protagonist;
+  novel.createdAt = novel.createdAt || Date.now();
+
+  await dbSaveNovel(novel);
+
+  // 刷新列表与当前
+  const list = await dbGetAllNovels();
+  scenarioStore.novelsList = list;
+  if (scenarioStore.activeNovelId === id) {
+    scenarioStore.source = novel;
   }
 }
 
 /**
- * 清除当前小说与剧本
+ * 删除某本小说
  */
-export function clearCurrentNovel(): void {
+export async function deleteNovelSource(id: string): Promise<void> {
+  await dbDeleteNovel(id);
+  const list = await dbGetAllNovels();
+  scenarioStore.novelsList = list;
+
+  if (scenarioStore.activeNovelId === id) {
+    if (list.length > 0) {
+      await switchActiveNovel(list[0].id);
+    } else {
+      scenarioStore.activeNovelId = null;
+      scenarioStore.source = null;
+      localStorage.removeItem(ACTIVE_NOVEL_ID_KEY);
+    }
+  }
+}
+
+/**
+ * 清除所有小说与缓存
+ */
+export async function clearAllNovels(): Promise<void> {
+  for (const n of scenarioStore.novelsList) {
+    await dbDeleteNovel(n.id);
+  }
+  scenarioStore.novelsList = [];
+  scenarioStore.activeNovelId = null;
   scenarioStore.source = null;
-  scenarioStore.activeScenario = null;
-  try {
-    localStorage.removeItem(SOURCE_STORAGE_KEY);
-    localStorage.removeItem(SCENARIO_STORAGE_KEY);
-  } catch {}
+  localStorage.removeItem(ACTIVE_NOVEL_ID_KEY);
 }

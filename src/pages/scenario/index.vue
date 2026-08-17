@@ -1,15 +1,22 @@
 <script setup lang="ts">
-import Icon from '@/components/Icon.vue';
-import { clearCurrentNovel, loadScenarioStore, scenarioStore } from '@/scenario/store';
-import type { NovelSource, SceneNode } from '@/scenario/types';
 import { onMounted, ref } from 'vue';
+import Icon from '@/components/Icon.vue';
+import {
+  loadScenarioStore,
+  scenarioStore,
+  switchActiveNovel,
+} from '@/scenario/store';
+import type { NovelSource, SceneNode } from '@/scenario/types';
 import ImportModal from './ImportModal.vue';
+import LibraryModal from './LibraryModal.vue';
 
 onMounted(() => {
   loadScenarioStore();
 });
 
 const showImportModal = ref(false);
+const showLibraryModal = ref(false);
+const previewingNovel = ref<NovelSource | null>(null);
 
 const mockScenes = ref<SceneNode[]>([
   {
@@ -57,7 +64,26 @@ const mockScenes = ref<SceneNode[]>([
 ]);
 
 function handleNovelSaved(source: NovelSource) {
-  // Loaded successfully
+  previewingNovel.value = null;
+}
+
+function handleOpenImportFresh() {
+  previewingNovel.value = null;
+  showLibraryModal.value = false;
+  showImportModal.value = true;
+}
+
+function handleViewChapters(novel: NovelSource) {
+  previewingNovel.value = novel;
+  showLibraryModal.value = false;
+  showImportModal.value = true;
+}
+
+function handleQuickSwitch(e: Event) {
+  const target = e.target as HTMLSelectElement;
+  if (target.value) {
+    switchActiveNovel(target.value);
+  }
 }
 </script>
 
@@ -71,44 +97,80 @@ function handleNovelSaved(source: NovelSource) {
           当前小说：《{{ scenarioStore.source.title }}》（共 {{ scenarioStore.source.chapters.length }} 章节 / {{ (scenarioStore.source.totalChars / 10000).toFixed(1) }} 万字）
         </span>
         <span v-else class="nst-page-subtitle">
-          当前尚未载入小说，请先导入小说文本
+          书架目前暂无小说，请点击导入新小说
         </span>
       </div>
+
       <div class="nst-header-actions">
+        <!-- Quick Switch Selector if has multiple novels -->
+        <div v-if="scenarioStore.novelsList.length > 1" class="nst-quick-switcher">
+          <select
+            :value="scenarioStore.activeNovelId || ''"
+            class="nst-select nst-novel-select"
+            @change="handleQuickSwitch"
+          >
+            <option
+              v-for="n in scenarioStore.novelsList"
+              :key="n.id"
+              :value="n.id"
+            >
+              📚 《{{ n.title }}》 ({{ n.chapters.length }}章)
+            </option>
+          </select>
+        </div>
+
+        <!-- Open Shelf/Folder Manager -->
         <button
-          v-if="scenarioStore.source"
           class="nst-btn nst-btn-secondary nst-btn-sm"
-          @click="clearCurrentNovel"
+          title="管理小说书架 / 切换剧本"
+          @click="showLibraryModal = true"
         >
-          清空小说
+          <Icon name="scenario" :size="14" />
+          小说书架 ({{ scenarioStore.novelsList.length }})
         </button>
+
+        <!-- Import Button -->
         <button
           class="nst-btn nst-btn-primary nst-btn-sm"
-          @click="showImportModal = true"
+          @click="handleOpenImportFresh"
         >
           <Icon name="plus" :size="14" />
-          {{ scenarioStore.source ? '更换/导入小说' : '导入小说文本' }}
+          导入新小说
         </button>
       </div>
     </div>
 
     <!-- Loaded Novel Info Card -->
     <div v-if="scenarioStore.source" class="nst-source-summary-card">
-      <div class="nst-source-badge">📖 已就绪小说源</div>
+      <div class="nst-source-badge-line">
+        <span class="nst-source-badge">📖 当前活跃小说</span>
+        <div class="nst-source-quick-btns">
+          <button
+            class="nst-btn nst-btn-secondary nst-btn-xs"
+            @click="handleViewChapters(scenarioStore.source)"
+          >
+            浏览本小说全部章节 ({{ scenarioStore.source.chapters.length }})
+          </button>
+          <button
+            class="nst-btn nst-btn-secondary nst-btn-xs"
+            @click="showLibraryModal = true"
+          >
+            切换其他小说 ➔
+          </button>
+        </div>
+      </div>
+
       <div class="nst-source-main">
         <div class="nst-source-info">
           <h3 class="nst-source-title">《{{ scenarioStore.source.title }}》</h3>
           <div class="nst-source-meta">
-            <span>🎭 玩家身份：<strong>{{ scenarioStore.source.protagonist }}</strong></span>
+            <span>🎭 玩家身份：<strong>{{ scenarioStore.source.protagonist || '原著主角' }}</strong></span>
             <span>📑 章节总计：<strong>{{ scenarioStore.source.chapters.length }}</strong> 章</span>
             <span>📝 正文字数：<strong>{{ scenarioStore.source.totalChars.toLocaleString() }}</strong> 字</span>
           </div>
         </div>
         <div class="nst-source-next-box">
-          <div class="nst-next-hint">文本分章已就绪，下一步将进行单章/多章 AI 分镜清洗提取</div>
-          <button class="nst-btn nst-btn-primary nst-btn-sm" @click="showImportModal = true">
-            查看章节清单
-          </button>
+          <div class="nst-next-hint">已妥善保存在书架，随时可在多本小说间无缝换过去/换回来</div>
         </div>
       </div>
     </div>
@@ -116,12 +178,12 @@ function handleNovelSaved(source: NovelSource) {
     <!-- Empty State if no novel -->
     <div v-else class="nst-empty-source-card">
       <div class="nst-empty-icon">📚</div>
-      <h3 class="nst-empty-title">尚未导入小说文本</h3>
+      <h3 class="nst-empty-title">小说书架目前空空如也</h3>
       <p class="nst-empty-desc">
-        Novel-ST 支持一键粘贴小说长文本或直接上传本地 .txt / .md 文件。<br />
-        引擎会自动识别章节结构并切片，方便后续进行分镜提取与 IF 线演化。
+        Novel-ST 支持多本小说管理（书架文件夹模式）。<br />
+        你可以导入任意多本小说文本，系统会自动切章并永久保存，随时切换！
       </p>
-      <button class="nst-btn nst-btn-primary" @click="showImportModal = true">
+      <button class="nst-btn nst-btn-primary" @click="handleOpenImportFresh">
         <Icon name="plus" :size="16" />
         立即导入第一本小说
       </button>
@@ -191,8 +253,17 @@ function handleNovelSaved(source: NovelSource) {
     <!-- Import Modal -->
     <ImportModal
       :open="showImportModal"
+      :initial-novel="previewingNovel"
       @close="showImportModal = false"
       @saved="handleNovelSaved"
+    />
+
+    <!-- Library Modal (Shelf Manager) -->
+    <LibraryModal
+      :open="showLibraryModal"
+      @close="showLibraryModal = false"
+      @open-import="handleOpenImportFresh"
+      @view-chapters="handleViewChapters"
     />
   </div>
 </template>
@@ -208,6 +279,13 @@ function handleNovelSaved(source: NovelSource) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.nst-page-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .nst-page-title {
@@ -224,12 +302,31 @@ function handleNovelSaved(source: NovelSource) {
 
 .nst-header-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-.nst-btn-sm {
-  padding: 4px 12px;
+.nst-quick-switcher {
+  display: flex;
+  align-items: center;
+}
+
+.nst-novel-select {
+  padding: 4px 10px;
   font-size: 12px;
+  max-width: 220px;
+  font-weight: 600;
+  color: var(--nst-ink);
+}
+
+.nst-btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.nst-btn-xs {
+  padding: 3px 8px;
+  font-size: 11px;
 }
 
 /* Source Summary Card */
@@ -245,10 +342,22 @@ function handleNovelSaved(source: NovelSource) {
   gap: 8px;
 }
 
+.nst-source-badge-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .nst-source-badge {
   font-size: 11px;
   color: var(--nst-primary);
   font-weight: 600;
+}
+
+.nst-source-quick-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .nst-source-main {
@@ -281,7 +390,7 @@ function handleNovelSaved(source: NovelSource) {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
+  gap: 4px;
 }
 
 .nst-next-hint {
