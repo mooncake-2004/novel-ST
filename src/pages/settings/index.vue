@@ -10,7 +10,20 @@ import {
   type ApiChannel,
 } from '@/api/settings';
 import { toast } from '@/st/toast';
-import { ref } from 'vue';
+import { updateState, checkForUpdate, performUpdate } from '@/update';
+import { onMounted, ref } from 'vue';
+
+onMounted(() => {
+  checkForUpdate(false);
+});
+
+async function handleUpdateClick() {
+  if (updateState.available) {
+    await performUpdate();
+  } else {
+    await checkForUpdate(true);
+  }
+}
 
 // Channel Editing State
 const editingChannel = ref<ApiChannel | null>(null);
@@ -136,9 +149,17 @@ function confirmDeleteChannel() {
     <div class="nst-settings-topbar">
       <h2 class="nst-settings-main-title">设置</h2>
       <div class="nst-settings-version-group">
-        <span class="nst-version-badge">v1.0.0</span>
-        <button class="nst-update-btn" @click="toast.info('当前已是最新版本')">
-          更新
+        <span class="nst-version-badge">v{{ updateState.current }}</span>
+        <button
+          class="nst-update-btn"
+          :class="{ 'has-new-ver': updateState.available }"
+          :disabled="updateState.checking || updateState.updating"
+          @click="handleUpdateClick"
+        >
+          <span v-if="updateState.updating">正在更新...</span>
+          <span v-else-if="updateState.checking">检查中...</span>
+          <span v-else-if="updateState.available">立即更新至 v{{ updateState.latest }}</span>
+          <span v-else>检查更新</span>
         </button>
       </div>
     </div>
@@ -645,19 +666,34 @@ function confirmDeleteChannel() {
 }
 
 .nst-update-btn {
-  background: var(--nst-primary-hover);
-  color: var(--nst-primary-text);
-  border: none;
+  background: var(--nst-bg-card-hover);
+  color: var(--nst-ink);
+  border: 1px solid var(--nst-border);
   font-size: 11px;
   padding: 3px 10px;
   border-radius: var(--nst-radius-pill);
   cursor: pointer;
   font-weight: 600;
-  transition: opacity 0.2s;
+  transition: all var(--nst-dur) var(--nst-ease);
 }
 
 .nst-update-btn:hover {
-  opacity: 0.9;
+  background: var(--nst-primary);
+  color: var(--nst-primary-text);
+  border-color: transparent;
+}
+
+.nst-update-btn.has-new-ver {
+  background: var(--nst-primary);
+  color: var(--nst-primary-text);
+  border-color: transparent;
+  animation: nst-pulse 2s infinite;
+}
+
+@keyframes nst-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(194, 91, 44, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(194, 91, 44, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(194, 91, 44, 0); }
 }
 
 /* Form row styles */

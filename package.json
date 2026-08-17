@@ -1,7 +1,7 @@
 {
   "name": "novel-st",
-  "version": "1.0.0",
   "private": true,
+  "version": "1.0.1",
   "type": "module",
   "description": "Novel-ST: An interactive narrative branching, scene parsing and dual-track memory engine for SillyTavern",
   "scripts": {

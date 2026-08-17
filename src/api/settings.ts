@@ -14,7 +14,7 @@ export interface ApiChannel {
 
 export interface NovelSTSettings {
   enabled: boolean;
-  
+
   // Task Channel Assignments ('' means follow Main API)
   directorChannel: string; // 剧情裁判/导演
   parserChannel: string;   // 分镜提取/清洗
@@ -61,6 +61,9 @@ export function createNewChannel(name = '新渠道'): ApiChannel {
     timeoutSec: 120,
   };
 }
+
+const STORAGE_KEY = 'novel_st_settings_v1';
+const SETTINGS_KEY = 'novel_st';
 
 const DEFAULT_SETTINGS: NovelSTSettings = {
   enabled: true,
@@ -117,42 +120,80 @@ const DEFAULT_SETTINGS: NovelSTSettings = {
 根据前序未闭合的伏笔和玩家创造的因果变轨，合理推演后续大纲走向，确保逻辑严密、情感充沛。`,
 };
 
+function normalizeSettings(raw: any): NovelSTSettings {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS };
+  const d = DEFAULT_SETTINGS;
+  const merged: NovelSTSettings = {
+    ...d,
+    ...raw,
+    channels: Array.isArray(raw.channels) ? raw.channels : d.channels,
+  };
+  return merged;
+}
+
 export const novelSettings = reactive<NovelSTSettings>({ ...DEFAULT_SETTINGS });
 
 let isHydrated = false;
 
-export function hydrateSettings() {
-  const ctx = getContext();
-  if (!ctx) return;
-
-  if (!ctx.extension_settings) {
-    ctx.extension_settings = {};
+export function persistSettings() {
+  const jsonStr = JSON.stringify(novelSettings);
+  // 1. 本地存储 (防止任何情况下的丢失)
+  try {
+    localStorage.setItem(STORAGE_KEY, jsonStr);
+  } catch (e) {
+    console.warn('[Novel-ST] localStorage save failed:', e);
   }
 
-  const saved = ctx.extension_settings.novel_st;
-  if (saved && typeof saved === 'object') {
-    Object.assign(novelSettings, saved);
-    if (!Array.isArray(novelSettings.channels)) {
-      novelSettings.channels = [];
+  // 2. ST extensionSettings (跨端/跨设备同步)
+  const ctx = getContext();
+  if (ctx) {
+    if (!ctx.extensionSettings) {
+      ctx.extensionSettings = {};
     }
-  } else {
-    ctx.extension_settings.novel_st = { ...novelSettings };
+    ctx.extensionSettings[SETTINGS_KEY] = JSON.parse(jsonStr);
     ctx.saveSettingsDebounced?.();
+  }
+}
+
+export function hydrateSettings() {
+  if (isHydrated) return;
+
+  let loadedData: any = null;
+
+  // 1. 尝试从 ST extensionSettings 读取
+  const ctx = getContext();
+  if (ctx?.extensionSettings?.[SETTINGS_KEY]) {
+    loadedData = ctx.extensionSettings[SETTINGS_KEY];
+  }
+
+  // 2. 如果 ST 没有，从 localStorage 备用读取
+  if (!loadedData) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        loadedData = JSON.parse(raw);
+      }
+    } catch (e) {
+      console.warn('[Novel-ST] localStorage load failed:', e);
+    }
+  }
+
+  if (loadedData) {
+    const normalized = normalizeSettings(loadedData);
+    Object.assign(novelSettings, normalized);
   }
 
   isHydrated = true;
+  // 立即反向同步一次，确保两端一致
+  persistSettings();
 }
 
-// Auto-save changes to SillyTavern extension_settings
+// 深度监听设置变化并自动保存
 watch(
   novelSettings,
-  (val) => {
+  () => {
     if (!isHydrated) return;
-    const ctx = getContext();
-    if (ctx && ctx.extension_settings) {
-      ctx.extension_settings.novel_st = JSON.parse(JSON.stringify(val));
-      ctx.saveSettingsDebounced?.();
-    }
+    persistSettings();
   },
   { deep: true }
 );
