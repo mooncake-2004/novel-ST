@@ -1,9 +1,8 @@
 /**
  * 字体图标兜底: 兼容各类酒馆第三方美化主题
- * \f02d = fa-book (书本图标)
- * \e0bb = fa-book-bookmark
+ * \e131 = fa-clapperboard (场记板 / Action 打板演戏图标)
  */
-const ICON_UNICODE = '\\f02d';
+const ICON_UNICODE = '\\e131';
 const injected = new Set<string>();
 
 export function ensureIconFallback(styleId: string, selector: string): void {
